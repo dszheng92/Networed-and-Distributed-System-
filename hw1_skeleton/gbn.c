@@ -1,5 +1,7 @@
 #include "gbn.h"
 
+state_t s;
+
 volatile sig_atomic_t print_flag = false;
 
 void timeout_handler(int signum) {
@@ -28,7 +30,8 @@ uint16_t checksum_header(gbnhdr *header)
     int nwords = (sizeof(header->type) + sizeof(header->seqnum) + sizeof(header->data))/sizeof(uint16_t);
     uint16_t buf_array[nwords];
     buf_array[0] = ((uint16_t)header->type << 8) + (uint16_t)header->seqnum;
-	for (int byte_index = 1; byte_index <= sizeof(header->data); byte_index++){
+    int byte_index;
+	for (byte_index = 1; byte_index <= sizeof(header->data); byte_index++){
 		int word_index = (byte_index + 1) / 2;
 		if (byte_index % 2 == 1){
 			buf_array[word_index] = header->data[byte_index-1]<<8;
@@ -111,7 +114,7 @@ ssize_t gbn_send(int sockfd, const void *buf, size_t len, int flags){
 							}
 							if(s.window_size<4){
 								s.window_size *= 2;
-								printf("INFO: window_size switch from slow mode to moderate or moderate to fast, now is %d", s.window_size);
+								printf("INFO: window_size switch from slow mode to moderate or moderate to fast, now is %d\n", s.window_size);
 							}
 							if(unack_counter==0) alarm(0);
 							else alarm(TIMEOUT);
@@ -127,7 +130,7 @@ ssize_t gbn_send(int sockfd, const void *buf, size_t len, int flags){
 							/* If time out, switch to the slow mode*/
                             if (s.window_size > 1) {
                                 s.window_size = 1;
-                                printf("INFO: Window size become slow mode");
+                                printf("INFO: Window size become slow mode\n");
                             }
 						} else{
 							s.state = CLOSED;
@@ -173,7 +176,7 @@ ssize_t gbn_recv(int sockfd, void *buf, size_t len, int flags){
             		printf("SUCCESS: DATA packet has the correct sequence number.\n");
             		s.seqnum = data_packet->seqnum+(uint8_t)1;
             		memcpy(&data_len,data_packet->data,2);
-            		memcpy(buf,data_packet->data+2,sizeof(data_packet->data)-2);
+            		memcpy(buf,data_packet->data+2,data_len);
             		make_header(DATAACK,s.seqnum,ack_packet);
             		received = 1;
             	}else{
@@ -237,9 +240,9 @@ int gbn_close(int sockfd){
 					break;
 				}
 				if(recvfrom(sockfd, send_fin_ack, sizeof(*send_fin_ack), 0, &from, &from_len) != -1) {
-					 if(send_fin_ack == FINACK && send_fin_ack->checksum == checksum_header(send_fin_ack)){
+					 if(send_fin_ack->type == FINACK && send_fin_ack->checksum == checksum_header(send_fin_ack)){
                         printf("SUCCESS: Recieved SEND_FIN_ACK packet...\n");
-                        if(recv_fin_ack== FINACK && recv_fin_ack->checksum == checksum_header(recv_fin_ack)){
+                        if(recv_fin_ack->type== FINACK && recv_fin_ack->checksum == checksum_header(recv_fin_ack)){
                         	s.state = CLOSED;
                         	return close(sockfd);
                         } else{
@@ -257,7 +260,7 @@ int gbn_close(int sockfd){
 				}
 				break;
 			case FIN_SENT:
-				if (maybe_recvfrom(sockfd, recv_fin, sizeof(*recv_fin), 0, &from, &from_len) != -1) {
+				if (recvfrom(sockfd, recv_fin, sizeof(*recv_fin), 0, &from, &from_len) != -1) {
                     if (recv_fin->type == FIN && recv_fin->checksum == checksum_header(recv_fin)) {
                         printf("SUCCESS: RECV_FIN received.\n");
                         s.seqnum = recv_fin->seqnum + (uint8_t) 1;
@@ -330,7 +333,7 @@ int gbn_connect(int sockfd, const struct sockaddr *server, socklen_t socklen){
 				break;
 			} else{
 				printf("SUCCESS: Sent SYNC.\n");
-				//timeout setting for SYN, signal SIGALRM sent to the process
+				/*timeout setting for SYN, signal SIGALRM sent to the process*/
 				alarm(TIMEOUT);
                 attempts++;
 			}
@@ -345,7 +348,7 @@ int gbn_connect(int sockfd, const struct sockaddr *server, socklen_t socklen){
 		}
 
 		/* receive ACK */
-		if(maybe_recvfrom(sockfd, syn_ack, sizeof(*syn_ack), 0, &from, &from_len) != -1 ){
+		if(recvfrom(sockfd, syn_ack, sizeof(*syn_ack), 0, &from, &from_len) != -1 ){
 			printf("SUCCESS: Received SYNACK...\n");
 			printf("type: %d\tseqnum:%d\tchecksum(received)%d\tchecksum(calculated)%d\n", syn_ack->type, syn_ack->seqnum, syn_ack->checksum, checksum_header(syn_ack));
 			if (syn_ack->type == SYNACK && syn_ack->checksum == checksum_header(syn_ack)) {
@@ -354,7 +357,7 @@ int gbn_connect(int sockfd, const struct sockaddr *server, socklen_t socklen){
                 s.addr = *server;
                 make_header(DATAACK, syn_ack->seqnum, ack_pkt);
 
-                // can not send ACK
+                /*can not send ACK*/
                 if (sendto(sockfd, ack_pkt, sizeof(*ack_pkt), 0, server,socklen) == -1) {
                     printf("ERROR: Unable to send ACK.\n");
                     s.state = CLOSED;
@@ -419,7 +422,7 @@ int gbn_accept(int sockfd, struct sockaddr *client, socklen_t *socklen){
 		switch (s.state) {
 			case CLOSED:
 				printf("STATE: CLOSED.\n");
-				if (maybe_recvfrom(sockfd, syn, sizeof(*syn), 0, client, socklen) != -1) {
+				if (recvfrom(sockfd, syn, sizeof(*syn), 0, client, socklen) != -1) {
                     if (syn->type == SYN && syn->checksum == checksum_header(syn)) {
                         printf("SUCCESS: Received SYN.\n");
                         s.state = SYN_RCVD;
@@ -450,7 +453,7 @@ int gbn_accept(int sockfd, struct sockaddr *client, socklen_t *socklen){
 					printf("SUCCESS: Sent SYNACK.\n");
 					alarm(TIMEOUT);
 					attempts++;
-					if(maybe_recvfrom(sockfd,ack_pkt,sizeof(*ack_pkt),0,client,socklen)==-1){
+					if(recvfrom(sockfd,ack_pkt,sizeof(*ack_pkt),0,client,socklen)==-1){
 						if(errno!=EINTR){
 							printf("ERROR: Unable to receive ACK.\n");
 							s.state = CLOSED;

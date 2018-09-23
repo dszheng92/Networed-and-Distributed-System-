@@ -18,6 +18,11 @@ int main(int argc, char *argv[]){
 		exit(-1);
 	}
 
+	printf("%s\n", argv[0]);
+	printf("%s\n", argv[1]);
+	printf("%s\n", argv[2]);
+	printf("%s\n", argv[3]);
+
 	/*----- Opening the input file -----*/
 	if ((inputFile = fopen(argv[3], "rb")) == NULL){
 		perror("fopen");
@@ -39,7 +44,7 @@ int main(int argc, char *argv[]){
 	/*--- Setting the server's parameters -----*/
 	memset(&server, 0, sizeof(struct sockaddr_in));
 	server.sin_family = AF_INET;
-	server.sin_addr   = *(struct in_addr *)he->h_addr;
+	server.sin_addr   = *(struct in_addr *)he->h_addr_list[0];
 	server.sin_port   = htons(atoi(argv[2]));
 
 	/*----- Connecting to the server -----*/
@@ -50,6 +55,7 @@ int main(int argc, char *argv[]){
 
 	/*----- Reading from the file and sending it through the socket -----*/
 	while ((numRead = fread(buf, 1, DATALEN * N, inputFile)) > 0){
+		printf("Read file, prepare to send the file\n");
 		if (gbn_send(sockfd, buf, numRead, 0) == -1){
 			perror("gbn_send");
 			exit(-1);
