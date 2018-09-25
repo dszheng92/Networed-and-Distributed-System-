@@ -18,11 +18,6 @@ int main(int argc, char *argv[]){
 		exit(-1);
 	}
 
-	printf("%s\n", argv[0]);
-	printf("%s\n", argv[1]);
-	printf("%s\n", argv[2]);
-	printf("%s\n", argv[3]);
-
 	/*----- Opening the input file -----*/
 	if ((inputFile = fopen(argv[3], "rb")) == NULL){
 		perror("fopen");
@@ -55,7 +50,7 @@ int main(int argc, char *argv[]){
 
 	/*----- Reading from the file and sending it through the socket -----*/
 	while ((numRead = fread(buf, 1, DATALEN * N, inputFile)) > 0){
-		printf("Read file, prepare to send the file\n");
+		printf("Read file, prepare to send the file, the file length is %d\n",numRead);
 		if (gbn_send(sockfd, buf, numRead, 0) == -1){
 			perror("gbn_send");
 			exit(-1);

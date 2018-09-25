@@ -53,7 +53,7 @@ void make_header(int type, uint8_t sequence_num, gbnhdr *header)
 }
 
 ssize_t gbn_send(int sockfd, const void *buf, size_t len, int flags){
-	printf("FUNCTION: gbn_send()...\n");
+	printf("FUNCTION: gbn_send()...%d\n",len);
 	gbnhdr *data_packet = malloc(sizeof(*data_packet));
 	gbnhdr *ack_packet = malloc(sizeof(*ack_packet));
 	int attempts = 0, i = 0, j = 0;
@@ -79,7 +79,7 @@ ssize_t gbn_send(int sockfd, const void *buf, size_t len, int flags){
 						memcpy(data_packet->data,(uint16_t *)&data_length,2);
 						memcpy(data_packet->data+2, buf+i+(DATALEN-2)*j,data_length);
 						data_packet->checksum = checksum_header(data_packet);
-						if(attempts<5){
+						if(attempts<MAX_ATTEMPTS){
 							int res = sendto(sockfd,data_packet, sizeof(*data_packet), 0, &s.addr, server_len);
 							if(res==-1){
 								printf("ERROR: Unable to send data.\n");
@@ -91,7 +91,7 @@ ssize_t gbn_send(int sockfd, const void *buf, size_t len, int flags){
 							s.state = CLOSED;
 							return -1;
 						}
-						printf("SUCCESS: Data sent. \n");
+						printf("SUCCESS: Data sent. %d\n",data_length);
 						unack_counter++;
 					}
 				}
@@ -102,15 +102,17 @@ ssize_t gbn_send(int sockfd, const void *buf, size_t len, int flags){
 					if(maybe_recvfrom(sockfd, ack_packet, sizeof(*ack_packet), 0, &from, &from_len) != -1) {
 						if(ack_packet->type == DATAACK && ack_packet->checksum == checksum_header(ack_packet)){
 							printf("SUCCESS: DATAACK received.\n");
+							ack_counter = 0;
 							int diff = ((int)ack_packet->seqnum-(int)s.seqnum);
 							if(diff>=0) ack_counter = (size_t)(diff);
 							else ack_counter = (size_t)(diff+256);
 							unack_counter -= ack_counter;
 							s.seqnum = ack_packet->seqnum;
-							if(len-i-(DATALEN-2)*j<DATALEN-2){
-								i+=len-i-(DATALEN-2)*j;
+							size_t ack_len = (DATALEN-2)*ack_counter;
+							if(i+ack_len<len){
+								i+=ack_len;
 							}else{
-								i+=DATALEN-2;
+								i = len;
 							}
 							if(s.window_size<4){
 								s.window_size *= 2;
@@ -173,10 +175,11 @@ ssize_t gbn_recv(int sockfd, void *buf, size_t len, int flags){
             }else if(data_packet->type == DATA && data_packet->checksum == checksum_header(data_packet)){
             	printf("SUCCESS: Receiving a valid DATA packet\n");
             	if(data_packet->seqnum == s.seqnum){
-            		printf("SUCCESS: DATA packet has the correct sequence number.\n");
+            		printf("SUCCESS: DATA packet has the correct sequence number. ");
             		s.seqnum = data_packet->seqnum+(uint8_t)1;
             		memcpy(&data_len,data_packet->data,2);
             		memcpy(buf,data_packet->data+2,data_len);
+            		printf("Receive data %d\n",data_len);
             		make_header(DATAACK,s.seqnum,ack_packet);
             		received = 1;
             	}else{
@@ -350,7 +353,6 @@ int gbn_connect(int sockfd, const struct sockaddr *server, socklen_t socklen){
 		/* receive ACK */
 		if(recvfrom(sockfd, syn_ack, sizeof(*syn_ack), 0, &from, &from_len) != -1 ){
 			printf("SUCCESS: Received SYNACK...\n");
-			printf("type: %d\tseqnum:%d\tchecksum(received)%d\tchecksum(calculated)%d\n", syn_ack->type, syn_ack->seqnum, syn_ack->checksum, checksum_header(syn_ack));
 			if (syn_ack->type == SYNACK && syn_ack->checksum == checksum_header(syn_ack)) {
                 printf("SUCCESS: Received valid SYNACK\n");
                 s.seqnum = syn_ack->seqnum;
